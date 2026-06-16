@@ -1,11 +1,13 @@
 import type {
   ApiErrorPayload,
+  StoredVideoPayload,
   TranscriptPayload,
   TranscriptSegment,
   TranslationPayload,
   TranslationStreamChunk,
   TranslationStreamDone,
-  TranslationStreamEvent
+  TranslationStreamEvent,
+  VideoHistoryPayload
 } from '../shared/types';
 
 export async function fetchTranscript(url: string): Promise<TranscriptPayload> {
@@ -15,18 +17,41 @@ export async function fetchTranscript(url: string): Promise<TranscriptPayload> {
   });
 }
 
+export async function fetchVideoHistory(): Promise<VideoHistoryPayload> {
+  const response = await fetch('/api/library/videos');
+
+  if (!response.ok) {
+    const payload = await readErrorPayload(response);
+    throw new ApiClientError(
+      response.status,
+      payload?.error.code || 'REQUEST_FAILED',
+      payload?.error.message || response.statusText,
+      payload?.error.details
+    );
+  }
+
+  return (await response.json()) as VideoHistoryPayload;
+}
+
+export async function lookupStoredVideo(url: string): Promise<StoredVideoPayload> {
+  return postJson<StoredVideoPayload>('/api/library/lookup', { url });
+}
+
 export async function translateSegments({
+  url,
   videoId,
   sourceLang,
   segments,
   signal
 }: {
+  url?: string;
   videoId: string;
   sourceLang: string;
   segments: TranscriptSegment[];
   signal?: AbortSignal;
 }): Promise<TranslationPayload> {
   return postJson<TranslationPayload>('/api/translate', {
+    url,
     videoId,
     sourceLang,
     targetLang: 'zh-CN',
@@ -35,12 +60,14 @@ export async function translateSegments({
 }
 
 export async function translateSegmentsStream({
+  url,
   videoId,
   sourceLang,
   segments,
   signal,
   onProgress
 }: {
+  url?: string;
   videoId: string;
   sourceLang: string;
   segments: TranscriptSegment[];
@@ -53,6 +80,7 @@ export async function translateSegmentsStream({
       'Content-Type': 'application/json'
     },
     body: JSON.stringify({
+      url,
       videoId,
       sourceLang,
       targetLang: 'zh-CN',
@@ -62,7 +90,7 @@ export async function translateSegmentsStream({
   });
 
   if (response.status === 404) {
-    return translateSegments({ videoId, sourceLang, segments, signal });
+    return translateSegments({ url, videoId, sourceLang, segments, signal });
   }
 
   if (!response.ok) {
@@ -76,7 +104,7 @@ export async function translateSegmentsStream({
   }
 
   if (!response.body) {
-    return translateSegments({ videoId, sourceLang, segments, signal });
+    return translateSegments({ url, videoId, sourceLang, segments, signal });
   }
 
   const reader = response.body.getReader();

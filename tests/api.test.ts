@@ -1,3 +1,6 @@
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const listLanguagesMock = vi.fn();
@@ -52,13 +55,15 @@ vi.mock('youtube-transcript-plus', () => {
 
 describe('api routes', () => {
   let server: Awaited<ReturnType<typeof startServer>>;
+  let dataDir: string;
 
   beforeEach(async () => {
     vi.resetModules();
     listLanguagesMock.mockReset();
     fetchTranscriptMock.mockReset();
+    dataDir = await mkdtemp(path.join(tmpdir(), 'youtube-helper-test-'));
     vi.stubEnv('OPENAI_API_KEY', '');
-    vi.stubEnv('DATA_DIR', '');
+    vi.stubEnv('DATA_DIR', dataDir);
 
     const { createApp } = await import('../server/index');
     server = await startServer(createApp());
@@ -66,6 +71,7 @@ describe('api routes', () => {
 
   afterEach(async () => {
     await new Promise<void>((resolve) => server.instance.close(() => resolve()));
+    await rm(dataDir, { force: true, recursive: true });
     vi.unstubAllEnvs();
     vi.unstubAllGlobals();
   });

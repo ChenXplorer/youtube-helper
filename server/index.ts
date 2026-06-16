@@ -4,6 +4,8 @@ import express, { type ErrorRequestHandler } from 'express';
 import { getTranscript } from './transcripts';
 import { translateTranscript, translateTranscriptStream } from './translation';
 import { HttpError, toHttpError } from './httpError';
+import { listVideoHistory, lookupStoredVideo, saveTranscriptRecord, saveTranslationRecord } from './videoLibrary';
+import { buildYoutubeWatchUrl } from '../shared/youtube';
 
 dotenv.config();
 
@@ -17,11 +19,26 @@ export function createApp() {
     response.json({ ok: true });
   });
 
+  app.get('/api/library/videos', (_request, response) => {
+    response.json({ items: listVideoHistory() });
+  });
+
+  app.post('/api/library/lookup', (request, response, next) => {
+    try {
+      const url = requireString(request.body?.url, 'url');
+      response.json({ record: lookupStoredVideo(url) });
+    } catch (error) {
+      next(error);
+    }
+  });
+
   app.post('/api/transcript', async (request, response, next) => {
     try {
       const url = requireString(request.body?.url, 'url');
       const lang = typeof request.body?.lang === 'string' ? request.body.lang : 'en';
-      response.json(await getTranscript(url, lang));
+      const payload = await getTranscript(url, lang);
+      saveTranscriptRecord({ url, ...payload });
+      response.json(payload);
     } catch (error) {
       next(error);
     }
@@ -32,20 +49,21 @@ export function createApp() {
       const videoId = requireString(request.body?.videoId, 'videoId');
       const sourceLang = requireString(request.body?.sourceLang, 'sourceLang');
       const targetLang = requireString(request.body?.targetLang, 'targetLang');
+      const url = getRequestVideoUrl(request.body?.url, videoId);
       const segments = Array.isArray(request.body?.segments) ? request.body.segments : null;
 
       if (!segments) {
         throw new HttpError(400, 'INVALID_SEGMENTS', 'segments 必须是数组。');
       }
 
-      response.json(
-        await translateTranscript({
-          videoId,
-          sourceLang,
-          targetLang,
-          segments
-        })
-      );
+      const payload = await translateTranscript({
+        videoId,
+        sourceLang,
+        targetLang,
+        segments
+      });
+      saveTranslationRecord({ url, payload });
+      response.json(payload);
     } catch (error) {
       next(error);
     }
@@ -56,6 +74,7 @@ export function createApp() {
       const videoId = requireString(request.body?.videoId, 'videoId');
       const sourceLang = requireString(request.body?.sourceLang, 'sourceLang');
       const targetLang = requireString(request.body?.targetLang, 'targetLang');
+      const url = getRequestVideoUrl(request.body?.url, videoId);
       const segments = Array.isArray(request.body?.segments) ? request.body.segments : null;
 
       if (!segments) {
@@ -73,6 +92,10 @@ export function createApp() {
         segments
       })) {
         response.write(`${JSON.stringify(event)}\n`);
+
+        if (event.type === 'done') {
+          saveTranslationRecord({ url, payload: event });
+        }
       }
 
       response.end();
@@ -109,6 +132,12 @@ function requireString(value: unknown, fieldName: string): string {
   }
 
   return value.trim();
+}
+
+function getRequestVideoUrl(value: unknown, videoId: string): string {
+  return typeof value === 'string' && value.trim().length > 0
+    ? value.trim()
+    : buildYoutubeWatchUrl(videoId);
 }
 
 const errorHandler: ErrorRequestHandler = (error, _request, response, _next) => {

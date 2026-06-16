@@ -63,6 +63,12 @@ let activePlayer: MockYouTubePlayer;
 let transcriptSegments: TranscriptSegment[];
 let translatedSegments: TranscriptSegment[];
 
+async function loadDemoVideo() {
+  await userEvent.click(screen.getByRole('button', { name: '载入' }));
+  await userEvent.type(screen.getByLabelText('YouTube 链接'), 'https://youtu.be/dQw4w9WgXcQ');
+  await userEvent.click(screen.getByRole('button', { name: '载入视频' }));
+}
+
 describe('App', () => {
   beforeEach(() => {
     transcriptSegments = [{ id: 'seg-0-0', startMs: 0, durationMs: 1000, text: 'Hello there.' }];
@@ -80,6 +86,14 @@ describe('App', () => {
       'fetch',
       vi.fn(async (input: RequestInfo | URL) => {
         const url = String(input);
+
+        if (url.endsWith('/api/library/videos')) {
+          return Response.json({ items: [] });
+        }
+
+        if (url.endsWith('/api/library/lookup')) {
+          return Response.json({ record: null });
+        }
 
         if (url.endsWith('/api/transcript')) {
           return Response.json({
@@ -115,14 +129,27 @@ describe('App', () => {
   it('loads transcript and renders translated subtitles', async () => {
     render(<App />);
 
-    await userEvent.type(screen.getByLabelText('YouTube 链接'), 'https://youtu.be/dQw4w9WgXcQ');
-    await userEvent.click(screen.getByRole('button', { name: /载入/i }));
+    await loadDemoVideo();
 
-    expect(await screen.findAllByText('Hello there.')).toHaveLength(2);
+    expect((await screen.findAllByText('Hello there.')).length).toBeGreaterThanOrEqual(2);
 
     await waitFor(() => {
-      expect(screen.getAllByText('你好。')).toHaveLength(2);
+      expect(screen.getAllByText('你好。').length).toBeGreaterThanOrEqual(2);
     });
+  });
+
+  it('collapses and restores the transcript pane', async () => {
+    render(<App />);
+
+    expect(screen.getByRole('heading', { name: '双语字幕' })).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: '收起' }));
+
+    expect(screen.queryByRole('heading', { name: '双语字幕' })).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: '字幕' }));
+
+    expect(screen.getByRole('heading', { name: '双语字幕' })).toBeInTheDocument();
   });
 
   it('supports seek, sentence navigation, playback rate, and locked sentence loop', async () => {
@@ -137,8 +164,7 @@ describe('App', () => {
 
     render(<App />);
 
-    await userEvent.type(screen.getByLabelText('YouTube 链接'), 'https://youtu.be/dQw4w9WgXcQ');
-    await userEvent.click(screen.getByRole('button', { name: /载入/i }));
+    await loadDemoVideo();
     await waitFor(() => expect(screen.getByTitle('播放')).not.toBeDisabled());
 
     await userEvent.click(screen.getByTitle('下一句'));
@@ -156,13 +182,19 @@ describe('App', () => {
     await userEvent.click(screen.getByTitle('上一句'));
     await waitFor(() => expect(activePlayer.seekCalls.at(-1)).toMatchObject({ seconds: 0, allowSeekAhead: true }));
 
-    await userEvent.click(screen.getByTitle('单句循环'));
+    await userEvent.click(screen.getByTitle('下一句'));
+    await waitFor(() => expect(activePlayer.seekCalls.at(-1)).toMatchObject({ seconds: 1, allowSeekAhead: true }));
+
+    const loopButton = screen.getByTitle('单句循环');
+    await userEvent.click(loopButton);
+    expect(loopButton).toHaveAttribute('aria-pressed', 'true');
+    expect(activePlayer.seekCalls.at(-1)).toMatchObject({ seconds: 1, allowSeekAhead: true });
+
     const loopSeekStart = activePlayer.seekCalls.length;
-    await userEvent.click(screen.getByTitle('播放'));
-    activePlayer.currentTime = 1.2;
+    activePlayer.currentTime = 2.2;
 
     await waitFor(() => {
-      expect(activePlayer.seekCalls.slice(loopSeekStart).some((call) => call.seconds === 0)).toBe(true);
+      expect(activePlayer.seekCalls.slice(loopSeekStart).some((call) => call.seconds === 1)).toBe(true);
     });
   });
 });

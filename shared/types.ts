@@ -32,6 +32,35 @@ export type TranscriptPayload = {
   segments: TranscriptSegment[];
 };
 
+export type StoredVideoRecord = TranscriptPayload & {
+  url: string;
+  createdAt: string;
+  updatedAt: string;
+  lastOpenedAt: string;
+};
+
+export type VideoHistoryItem = {
+  videoId: string;
+  url: string;
+  title: string;
+  author: string;
+  thumbnailUrl?: string;
+  sourceLang: string;
+  segmentCount: number;
+  translatedCount: number;
+  createdAt: string;
+  updatedAt: string;
+  lastOpenedAt: string;
+};
+
+export type VideoHistoryPayload = {
+  items: VideoHistoryItem[];
+};
+
+export type StoredVideoPayload = {
+  record: StoredVideoRecord | null;
+};
+
 export type TranslationPayload = {
   videoId: string;
   sourceLang: string;
